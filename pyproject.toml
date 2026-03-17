@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whatsapp-twin"
+version = "0.1.0"
+description = "WhatsApp reply assistant that drafts messages in your style"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.84.0",
+    "pyobjc-core>=12.0",
+    "pyobjc-framework-Cocoa>=12.0",
+    "pyobjc-framework-Quartz>=12.0",
+    "pyobjc-framework-ApplicationServices>=12.0",
+    "atomacos>=3.3.0",
+    "rumps>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+whatsapp-twin = "whatsapp_twin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
