@@ -147,3 +147,49 @@ def test_list_contacts():
     assert len(contacts) == 2
     assert contacts[0]["canonical_name"] == "Alpha"  # sorted
     db.close()
+
+
+def test_insert_message_if_new_inserts_novel_message():
+    """New message should be inserted and return True."""
+    db = _make_db()
+    cid = db.get_or_create_contact("Alice")
+    result = db.insert_message_if_new(
+        contact_id=cid, direction="sent", sender_name="Anmol Sahu",
+        text="hello there", timestamp="2026-03-19T10:00:00",
+        source="live_ax",
+    )
+    assert result is True
+    assert db.message_count(cid) == 1
+    db.close()
+
+def test_insert_message_if_new_skips_duplicate():
+    """Duplicate message (same contact, sender, text, timestamp) should return False."""
+    db = _make_db()
+    cid = db.get_or_create_contact("Alice")
+    db.insert_message_if_new(
+        contact_id=cid, direction="sent", sender_name="Anmol Sahu",
+        text="hello there", timestamp="2026-03-19T10:00:00",
+        source="live_ax",
+    )
+    result = db.insert_message_if_new(
+        contact_id=cid, direction="sent", sender_name="Anmol Sahu",
+        text="hello there", timestamp="2026-03-19T10:00:00",
+        source="live_ax",
+    )
+    assert result is False
+    assert db.message_count(cid) == 1
+    db.close()
+
+def test_get_recent_messages_since():
+    """Should return only messages after the given timestamp."""
+    db = _make_db()
+    cid = db.get_or_create_contact("Alice")
+    db.insert_messages([
+        (cid, "sent", "Anmol", "old msg", "2026-03-18T10:00:00", "export", None),
+        (cid, "sent", "Anmol", "new msg", "2026-03-19T10:00:00", "live_ax", None),
+        (cid, "received", "Alice", "reply", "2026-03-19T10:01:00", "live_ax", None),
+    ])
+    recent = db.get_recent_messages_since(cid, "2026-03-18T23:59:59")
+    assert len(recent) == 2
+    assert recent[0]["text"] == "new msg"
+    db.close()

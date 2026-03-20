@@ -253,6 +253,43 @@ class Database:
         ).fetchone()
         return row is not None
 
+    def insert_message_if_new(
+        self, contact_id: int, direction: str, sender_name: str,
+        text: str, timestamp: str, source: str = "live_ax",
+    ) -> bool:
+        """Insert a message only if an identical one doesn't exist.
+
+        Deduplicates on (contact_id, sender_name, text, timestamp).
+        Returns True if inserted, False if duplicate.
+        """
+        conn = self.connect()
+        existing = conn.execute(
+            "SELECT 1 FROM messages WHERE contact_id = ? AND sender_name = ? "
+            "AND text = ? AND timestamp = ? LIMIT 1",
+            (contact_id, sender_name, text, timestamp),
+        ).fetchone()
+        if existing:
+            return False
+        conn.execute(
+            "INSERT INTO messages (contact_id, direction, sender_name, text, timestamp, source) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (contact_id, direction, sender_name, text, timestamp, source),
+        )
+        conn.commit()
+        return True
+
+    def get_recent_messages_since(
+        self, contact_id: int, since_timestamp: str, limit: int = 500,
+    ) -> list[dict]:
+        """Get messages for a contact after a given timestamp, chronological order."""
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE contact_id = ? AND timestamp > ? "
+            "ORDER BY timestamp ASC LIMIT ?",
+            (contact_id, since_timestamp, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def close(self):
         if self._conn:
             self._conn.close()
