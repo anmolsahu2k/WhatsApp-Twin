@@ -24,6 +24,7 @@ from whatsapp_twin.learning.edit_tracker import EditTracker
 from whatsapp_twin.learning.style_updater import process_correction
 from whatsapp_twin.output.typer import insert_draft
 from whatsapp_twin.reader.accessibility import read_current_chat
+from whatsapp_twin.learning.live_learner import LiveLearner
 from whatsapp_twin.storage.database import Database
 
 
@@ -42,6 +43,7 @@ class WhatsAppTwinApp(rumps.App):
         self.hotkey = HotkeyListener(callback=self._on_hotkey)
         self.edit_tracker = EditTracker(self.db)
         self.draft_manager = DraftManager()
+        self.live_learner = LiveLearner(self.db, self.settings, self.claude)
         self._generating = False
 
         # Build menu
@@ -241,8 +243,24 @@ class WhatsAppTwinApp(rumps.App):
             contact = self.db.get_contact(contact_id)
             if contact and contact.get("excluded"):
                 return
+        else:
+            # Auto-create contact from live AX read
+            contact_id = self.db.get_or_create_contact(
+                contact_name, is_group=chat.is_group,
+            )
+            self.db.add_alias(contact_id, contact_name, source="live_ax")
+            # Note: don't call _refresh_contacts_menu() here — hotkey fires in a
+            # daemon thread and rumps menu updates must happen on the main thread.
+            # The menu will refresh on next import or app restart.
+            log.info("Auto-created contact '%s' from live chat", contact_name)
         if contact_name in self.settings.excluded_contacts:
             return
+
+        # Persist live messages and trigger background learning
+        if contact_id is not None:
+            self.live_learner.process_live_messages(
+                chat.messages, contact_name, contact_id,
+            )
 
         # Multi-draft: if we have a full set for this contact, just cycle
         dm = self.draft_manager
