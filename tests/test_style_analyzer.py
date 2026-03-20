@@ -130,3 +130,32 @@ def test_style_profile_prompt_description():
     assert "bhai" in desc
     assert "lowercase" in desc
     assert "Rarely uses periods" in desc
+
+
+from whatsapp_twin.ingestion.style_analyzer import incremental_style_update
+
+
+def test_incremental_style_update_adjusts_message_length():
+    """New messages should nudge avg_message_length_words toward their average."""
+    profile = StyleProfile(avg_message_length_words=5.0, emoji_density=0.0)
+    new_messages = [
+        ParsedMessage(timestamp=datetime.now(), sender="Anmol Sahu",
+                      text="this is a much longer message than usual with many words", is_system=False),
+        ParsedMessage(timestamp=datetime.now(), sender="Anmol Sahu",
+                      text="another long message with several extra words in it", is_system=False),
+    ]
+    updated = incremental_style_update(profile, new_messages, "Anmol Sahu")
+    # Should move toward ~10 words but not jump there instantly
+    assert updated.avg_message_length_words > 5.0
+    assert updated.avg_message_length_words < 10.0
+
+
+def test_incremental_style_update_ignores_received_messages():
+    """Only user's sent messages should influence the profile."""
+    profile = StyleProfile(avg_message_length_words=5.0)
+    new_messages = [
+        ParsedMessage(timestamp=datetime.now(), sender="Alice",
+                      text="this is from someone else and should be ignored completely", is_system=False),
+    ]
+    updated = incremental_style_update(profile, new_messages, "Anmol Sahu")
+    assert updated.avg_message_length_words == 5.0

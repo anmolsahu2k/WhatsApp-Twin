@@ -242,3 +242,69 @@ def _detect_farewells(texts: list[str]) -> list[str]:
                 found.append(f)
                 break
     return found
+
+
+def incremental_style_update(
+    profile: StyleProfile,
+    new_messages: list,
+    user_name: str,
+    alpha: float = 0.15,
+) -> StyleProfile:
+    """Update an existing StyleProfile incrementally from new messages.
+
+    Only processes messages sent by user_name. Uses EMA blending so
+    recent messages shift the profile gradually without erasing history.
+
+    Args:
+        profile: Current StyleProfile to update.
+        new_messages: List of ParsedMessage objects (new messages only).
+        user_name: The user's sender name to filter by.
+        alpha: EMA smoothing factor (0-1). Higher = more weight on new data.
+
+    Returns:
+        Updated StyleProfile (same object, mutated in place and returned).
+    """
+    user_msgs = [m for m in new_messages if m.sender == user_name and not m.is_system]
+    if not user_msgs:
+        return profile
+
+    # Compute stats from new messages batch
+    new_profile = analyze_style(new_messages, user_name)
+
+    # Blend each numeric field via EMA
+    def ema(old: float, new: float) -> float:
+        return old * (1 - alpha) + new * alpha
+
+    profile.avg_message_length_chars = ema(profile.avg_message_length_chars, new_profile.avg_message_length_chars)
+    profile.avg_message_length_words = ema(profile.avg_message_length_words, new_profile.avg_message_length_words)
+    profile.avg_messages_per_turn = ema(profile.avg_messages_per_turn, new_profile.avg_messages_per_turn)
+    profile.split_message_ratio = ema(profile.split_message_ratio, new_profile.split_message_ratio)
+    profile.hinglish_ratio = ema(profile.hinglish_ratio, new_profile.hinglish_ratio)
+    profile.emoji_density = ema(profile.emoji_density, new_profile.emoji_density)
+    profile.period_usage_ratio = ema(profile.period_usage_ratio, new_profile.period_usage_ratio)
+    profile.ellipsis_frequency = ema(profile.ellipsis_frequency, new_profile.ellipsis_frequency)
+    profile.avg_words_per_sentence = ema(profile.avg_words_per_sentence, new_profile.avg_words_per_sentence)
+
+    # Merge top emojis (union, keep top 10)
+    if new_profile.top_emojis:
+        combined = list(dict.fromkeys(profile.top_emojis + new_profile.top_emojis))
+        profile.top_emojis = combined[:10]
+
+    # Update laughing style if new messages have one
+    if new_profile.laughing_style:
+        profile.laughing_style = new_profile.laughing_style
+
+    # Update language if it shifted
+    if new_profile.primary_language != "en" and new_profile.primary_language != profile.primary_language:
+        profile.primary_language = new_profile.primary_language
+
+    # Merge hindi words
+    if new_profile.common_hindi_words:
+        combined = list(dict.fromkeys(profile.common_hindi_words + new_profile.common_hindi_words))
+        profile.common_hindi_words = combined[:15]
+
+    # Merge abbreviations
+    if new_profile.common_abbreviations:
+        profile.common_abbreviations.update(new_profile.common_abbreviations)
+
+    return profile
