@@ -50,6 +50,7 @@ whatsapp-twin run                                       # terminal mode (Option+
 - **OCR fallback** — if AX finds no messages, Vision framework OCR captures the WhatsApp window and extracts text.
 - **Multi-draft** — press hotkey again on same chat to get variant (up to 3); subsequent presses cycle through them.
 - **Edit learning** — draft sessions track what user actually sends. Corrections categorized (length, emoji, language, punctuation, tone) and applied via EMA (alpha=0.15) to update style profiles.
+- **Real-time learning** — every hotkey press persists live AX messages to DB (`source='live_ax'`), incrementally updates the quantitative style profile via EMA, and extracts new memories every 5th press per contact. All runs in background threads. Contacts not in DB are auto-created on first AX read.
 - **Group chats** — detected from AX (multiple received senders) or DB `is_group` flag. Groups get their own contact entry and style profile. Group-specific prompt templates include group dynamics and conversation flow rules.
 - **Logging** — `config/logging.py` provides `setup_logging()` (called at all 3 entry points: cli, main, menubar) and `get_logger(__name__)` per module. Format: `[I] whatsapp_twin.module: message`. Operational logs go to stderr; user-facing CLI output stays on stdout.
 - **Composer clear** — Cmd+A unreliable in WhatsApp's Catalyst composer. Uses Cmd+Down → Cmd+Shift+Up → Delete instead.
