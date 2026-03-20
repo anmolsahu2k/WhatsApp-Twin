@@ -15,6 +15,9 @@ log = get_logger(__name__)
 # Memory categories
 CATEGORIES = ["fact", "commitment", "event", "preference", "relationship"]
 
+# Minimum messages to bother extracting memories from
+MIN_MESSAGES_FOR_EXTRACTION = 5
+
 
 def add_memory(
     db: Database,
@@ -173,6 +176,59 @@ def save_extracted_memories(
         added += 1
 
     return added
+
+
+def incremental_memory_extraction(
+    messages: list[dict],
+    contact_name: str,
+    user_name: str,
+    claude_client,
+) -> list[dict]:
+    """Extract memories from a small batch of recent messages.
+
+    Unlike extract_memories_from_messages(), this is designed for small
+    live batches (10-50 messages) and doesn't chunk. Skips if batch
+    is too small to contain meaningful facts.
+
+    Args:
+        messages: Recent message dicts with keys: direction, sender_name, text.
+        contact_name: Contact display name.
+        user_name: User's display name.
+        claude_client: ClaudeClient instance.
+
+    Returns:
+        List of dicts with keys: category, content.
+    """
+    if len(messages) < MIN_MESSAGES_FOR_EXTRACTION:
+        return []
+
+    chunk_text = _format_messages_for_extraction(messages, contact_name, user_name)
+
+    system = (
+        "You are extracting key facts and relationship information from a recent WhatsApp conversation "
+        f"between {user_name} and {contact_name}.\n\n"
+        "Extract ONLY concrete, new information. Categories:\n"
+        "- fact: personal details (birthday, job, location, family, hobbies)\n"
+        "- commitment: plans, promises, things to follow up on\n"
+        "- event: significant shared events or milestones\n"
+        "- preference: known likes/dislikes, opinions\n"
+        "- relationship: nature of relationship, shared context, inside jokes\n\n"
+        "Return a JSON array of objects with 'category' and 'content' fields.\n"
+        "Each content should be a concise statement (1 sentence max).\n"
+        "Return ONLY valid JSON, no markdown fencing. Return [] if nothing noteworthy."
+    )
+
+    user_msg = (
+        f"Extract key memories from this recent conversation between {user_name} and {contact_name}:\n\n"
+        f"<conversation>\n{chunk_text}\n</conversation>"
+    )
+
+    try:
+        response = claude_client.generate(system, user_msg, max_tokens=500)
+        return _parse_extraction_response(response)
+    except Exception as e:
+        log.warning("Incremental memory extraction failed: %s", e)
+        return []
 
 
 def _format_messages_for_extraction(
