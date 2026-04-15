@@ -6,11 +6,15 @@
 
 I built a macOS desktop app that reads my WhatsApp conversations and drafts replies in my exact texting style. The AI only drafts — I always press Send myself. Here's how I went from idea to a working prototype in about two weeks.
 
+![Architecture: Option+Space → AX Reader → Prompt Builder → Claude API → Clipboard Paste → WhatsApp Composer](blog-assets/architecture.png)
+
 ## The Problem
 
 I text differently with different people. With close friends, it's all lowercase, Hinglish (Hindi-English mix), heavy emoji usage, and split messages. With colleagues, it's proper sentences with punctuation. With family groups, it's somewhere in between.
 
 Every AI writing tool I tried produced generic, obviously-AI text. I wanted something that could learn *my* patterns — per contact — and generate drafts that even my friends wouldn't question.
+
+![Generic AI reply vs WhatsApp Twin reply](blog-assets/before-after.png)
 
 ## The Idea
 
@@ -26,7 +30,11 @@ Before writing any real code, I needed to answer three questions:
 
 WhatsApp Desktop on Mac is a Catalyst app (an iPad app running on macOS). This turned out to be both good and bad. Good: it exposes accessibility (AX) elements. Bad: it doesn't behave like a normal AppKit app.
 
-I opened Accessibility Inspector and mapped the UI tree. Key discoveries:
+I opened Accessibility Inspector and mapped the UI tree:
+
+![WhatsApp AX tree hierarchy](blog-assets/ax-tree.png)
+
+Key discoveries:
 - `app.windows()` returns an empty list (Catalyst quirk). You need `app.AXMainWindow` instead.
 - Message text lives in the `AXDescription` attribute, not `AXValue`.
 - The composer text area (`ChatBar_ComposerTextView`) doesn't support `AX setValue()`.
@@ -59,6 +67,8 @@ Complications I hit:
 
 For storage, I used SQLite with TTL-based retention: messages auto-purge after 90 days, drafts after 30 days, corrections after 90 days. Memory entries (facts about contacts) are durable — they only go away if you explicitly delete a contact.
 
+![Data retention policy](blog-assets/retention-table.png)
+
 I wanted SQLCipher for encryption, but `pysqlcipher3` doesn't support Python 3.14. Plain SQLite for now — encryption is on the roadmap.
 
 ## Phase 2: Style Analysis
@@ -73,6 +83,8 @@ This is where it gets interesting. For each contact, I analyze every message I'v
 - **Sentence rhythm**: words per sentence, connector style
 
 This is all pure Python — no API calls. Just regex, counters, and statistics over the message history.
+
+![Style profile comparison across contacts](blog-assets/style-comparison.png)
 
 On top of the quantitative analysis, there's an optional qualitative pass: send 50 representative messages to Claude and ask it to describe the tone, rhythm, and quirks in structured JSON. This captures things that are hard to quantify — like sarcasm patterns or how I transition between topics.
 
@@ -96,6 +108,8 @@ A critical safety invariant: **the app never simulates Enter/Return**. It only p
 
 I used `rumps` to build a menubar app — a small icon in the macOS menu bar that shows status, lets you import exports, manage contacts, and configure settings. The app runs the hotkey listener in a background thread and the rumps event loop on the main thread.
 
+![Menubar app dropdown structure](blog-assets/menubar.png)
+
 One gotcha: rumps requires the NSApplication event loop to be running before you can do anything useful. Preflight checks (accessibility permissions, WhatsApp running) had to be deferred via a `@rumps.timer(1)` callback that fires once after the event loop starts.
 
 ## Phase 5: Memory System
@@ -112,18 +126,17 @@ At generation time, relevant memories are injected into the prompt context. This
 
 This is the feedback loop that makes the system get better over time.
 
+![Edit learning feedback loop](blog-assets/edit-learning-loop.png)
+
 After a draft is inserted, the app monitors the AX tree for what happens next:
 - If the user sends a message that's similar to the draft (similarity > 0.3), it captures the actual sent text
 - It computes a word-level diff between the draft and what was sent
 - It categorizes the corrections: did the user shorten it? Add emoji? Switch language? Change tone?
 - It updates the style profile using an exponential moving average (alpha = 0.15)
 
-The session tracking is surprisingly tricky. A "draft session" gets invalidated if:
-- The user switches to a different chat
-- The composer is cleared without sending
-- WhatsApp loses focus for over 60 seconds
-- An inbound message arrives before the user sends
-- 5 minutes pass since the draft was inserted
+The session tracking is surprisingly tricky. A "draft session" gets invalidated on any of these triggers:
+
+![Session invalidation triggers](blog-assets/session-invalidation.png)
 
 After every 10 high-confidence corrections per contact, the system re-runs the qualitative LLM analysis to capture any style drift.
 
